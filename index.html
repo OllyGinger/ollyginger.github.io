@@ -14,7 +14,7 @@
 
         var hash = window.location.hash.substr(1);
         if (hash.length == 0) {
-            window.location = "https://accounts.spotify.com/authorize?response_type=token&client_id=" + CLIENT_ID + "&scope=user-read-playback-position,user-read-playback-state" + "&redirect_uri=http://localhost:8000";
+            window.location = "https://accounts.spotify.com/authorize?response_type=token&client_id=" + CLIENT_ID + "&scope=user-read-playback-position,user-read-playback-state" + "&redirect_uri=https://ollyginger.github.io/";
         } else {
             let params = new URLSearchParams(hash);
             access_token = params.get("access_token");
