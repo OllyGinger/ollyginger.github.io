@@ -5,29 +5,41 @@
 </head>
 
 <body>
+    <h3>Fetching episodes for 'Stuff you should know'...</h3>
     <script>
         const CLIENT_ID = "79329931bde7484eb99ecbe4dacdfb7b";
         const STUFF_YOU_SHOULD_KNOW_ID = "0ofXAdFIQQRsCYj9754UFx";
+        const NUM_EPISODES_TO_SHOW = 12;
 
         let num_episodes = 0;
         let request_limit = 0;
+        let info = { "seconds_listened": 0 };
+        var should_continue = true;
+
+        let redirect_url = "";
+        if (window.location.hostname == "ollyginger.github.io") {
+            redirect_url = "https://ollyginger.github.io/";
+        } else {
+            redirect_url = "http://localhost:8000";
+        }
 
         var hash = window.location.hash.substr(1);
         if (hash.length == 0) {
-            window.location = "https://accounts.spotify.com/authorize?response_type=token&client_id=" + CLIENT_ID + "&scope=user-read-playback-position,user-read-playback-state" + "&redirect_uri=https://ollyginger.github.io/";
+            window.location = "https://accounts.spotify.com/authorize?response_type=token&client_id=" + CLIENT_ID + "&scope=user-read-playback-position,user-read-playback-state" + "&redirect_uri=" + redirect_url;
         } else {
             let params = new URLSearchParams(hash);
             access_token = params.get("access_token");
             console.log("Access token: " + access_token);
             let run = async () => {
                 let episodes = [];
-                await fetch_show(access_token, STUFF_YOU_SHOULD_KNOW_ID, episodes);
+                await fetch_show(access_token, STUFF_YOU_SHOULD_KNOW_ID, episodes, info);
+                document.write(((info.seconds_listened / 1000) / 60 / 60).toFixed(2) + " hours listened to so far...");
             }
 
             run();
         }
 
-        async function fetch_show(access_token, show_id, episodes) {
+        async function fetch_show(access_token, show_id, episodes, info) {
             let request = await fetch('https://api.spotify.com/v1/shows/' + show_id + "?market=GB", {
                 method: 'GET',
                 headers: {
@@ -45,32 +57,37 @@
             var prev_idx = 0;
             for (idx = num_episodes - request_limit; idx >= 0; idx -= (request_limit + 1)) {
                 prev_idx = idx;
-                await process_episode_range(show_id, idx, request_limit, episodes);
+                await process_episode_range(show_id, idx, request_limit, episodes, info);
             }
             if (prev_idx > 0) {
-                await process_episode_range(show_id, 0, prev_idx - 1, episodes);
+                await process_episode_range(show_id, 0, prev_idx - 1, episodes, info);
             }
-            //await process_episode_range(show_id, 100, 4, episodes);
+            //await process_episode_range(show_id, 100, 4, episodes, info);
         }
 
-        async function process_episode_range(show_id, offset, limit, episodes) {
-            console.log("Requesting episodes: " + offset + "-" + (offset + limit) + "...");
-            await get_episodes(show_id, offset, limit, episodes);
-
-            if (episodes.length > 10) {
+        async function process_episode_range(show_id, offset, limit, episodes, info) {
+            if (should_continue) {
+                console.log("Requesting episodes: " + offset + "-" + (offset + limit) + "...");
+                await get_episodes(show_id, offset, limit, episodes, info);
+                var did_clear = false;
                 episodes.forEach(function (episode) {
-                    let percent_complete = 0.0;
-                    if (episode.resume_pos > 0) {
-                        percent_complete = episode.resume_pos / episode.total_len;
+                    if (episodes.length >= NUM_EPISODES_TO_SHOW) {
+                        if (!did_clear) {
+                            document.body.innerHTML = "";
+                            did_clear = true;
+                        }
+                        let percent_complete = 0.0;
+                        if (episode.resume_pos > 0) {
+                            percent_complete = episode.resume_pos / episode.total_len;
+                        }
+                        document.write("<h3><a href='https://open.spotify.com/episode/" + episode.id + "'>" + episode.title + " - " + (percent_complete * 100).toFixed(4) + "% Complete</a></h3><br/>");
+                        should_continue = false;
                     }
-                    document.write("<a href='https://open.spotify.com/episode/" + episode.id + "'>" + episode.title + " - Percent: " + percent_complete + "</a><br/>");
                 });
-
-                throw new Error('exiting');
             }
         }
 
-        async function get_episodes(show_id, offset, limit, episodes) {
+        async function get_episodes(show_id, offset, limit, episodes, info) {
             console.log("Off " + offset + " Limit " + limit);
             const req = await fetch('https://api.spotify.com/v1/shows/' + show_id + "/episodes?market=GB&" +
                 "limit=" + limit + "&offset=" + offset, {
@@ -81,29 +98,41 @@
             });
             let data = await req.json();
 
+            // Clear the document
+            document.body.innerHTML = "";
+            document.write("<ul>");
             await data.items.forEach(function (episode) {
-                const e = {
-                    "title": episode.name,
-                    "date": episode.release_date,
-                    "fully_played": episode.resume_point?.fully_played,
-                    "resume_pos": episode.resume_point?.resume_position_ms,
-                    "total_len": episode.duration_ms,
-                    "id": episode.id
-                };
+                if (episodes.length < NUM_EPISODES_TO_SHOW) {
+                    const e = {
+                        "title": episode.name,
+                        "date": episode.release_date,
+                        "fully_played": episode.resume_point?.fully_played,
+                        "resume_pos": episode.resume_point?.resume_position_ms,
+                        "total_len": episode.duration_ms,
+                        "id": episode.id
+                    };
 
-
-                if (!e.fully_played) {
                     let percent_complete = 0.0;
                     if (e.resume_pos > 0) {
                         percent_complete = e.resume_pos / e.total_len;
                     }
 
-                    if (percent_complete < 0.5) {
-                        episodes.push(e);
-                        console.log(e);
+                    if (e.fully_played) {
+                        info.seconds_listened += e.total_len;
+                    } else {
+                        info.seconds_listened += e.resume_pos;
+                    }
+
+                    document.write("<li>" + e.title + " - " + (percent_complete * 100).toFixed(4) + "% Complete</li>");
+
+                    if (!e.fully_played) {
+                        if (percent_complete < 0.1) {
+                            episodes.push(e);
+                        }
                     }
                 }
             });
+            document.write("</ul>");
         }
     </script>
 </body>
